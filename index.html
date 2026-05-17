@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schichtkalender (Ansicht)</title>
+    <style>
+        :root {
+            --bg: #f5f5f5;
+            --text: #333;
+            --card: #fff;
+            --border: #ddd;
+            --primary: #1976d2;
+            --accent: #f0f0f0;
+        }
+        :root.dark {
+            --bg: #121212;
+            --text: #e0e0e0;
+            --card: #1e1e1e;
+            --border: #333;
+            --accent: #2c2c2c;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background: var(--bg);
+            color: var(--text);
+            transition: background 0.3s;
+        }
+        .container-wrapper { max-width: 1000px; margin: 0 auto; }
+        h1 { text-align: center; font-size: 1.5rem; margin-bottom: 20px; }
+
+        /* Toolbar */
+        .toolbar {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: 0.2s;
+        }
+        button:hover { background: var(--accent); }
+
+        /* Calendar */
+        .calendar-container {
+            background: var(--card);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        #monthYear { font-weight: bold; font-size: 1.2rem; }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 8px;
+        }
+        .day-name {
+            text-align: center;
+            font-weight: 600;
+            padding: 10px 0;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: #888;
+        }
+        .day {
+            min-height: 90px;
+            background: var(--card);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 8px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .today { border: 2px solid var(--primary); background: rgba(25, 118, 210, 0.05); }
+        .day-number { font-weight: bold; font-size: 0.9rem; margin-bottom: 6px; }
+
+        /* Wochentag-Suffix für die mobile Listenübersicht */
+        .day-number .mobile-weekday { display: none; }
+
+        .shifts-container {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            width: 100%;
+        }
+
+        .shift {
+            color: #fff;
+            padding: 4px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .note { font-size: 0.65rem; color: #666; display: block; margin-top: 2px; font-style: italic; }
+
+        /* Schmale Ansicht (Smartphone) */
+        @media (max-width: 700px) {
+            .calendar-grid { grid-template-columns: repeat(1, 1fr); }
+            .day {
+                min-height: auto;
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+                padding: 12px;
+            }
+            .day-number { margin-bottom: 0; min-width: 60px; }
+            .day-name { display: none; }
+
+            .shifts-container {
+                width: auto;
+                align-items: flex-end;
+            }
+
+            .day-number .mobile-weekday { display: inline; color: #777; font-weight: 500; margin-left: 4px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container-wrapper">
+    <div class="toolbar">
+        <button id="themeToggle">🌓 Modus</button>
+        <button id="viewToggle">📅 Ansicht</button>
+    </div>
+
+    <h1>Schichtkalender</h1>
+
+    <div class="calendar-container">
+        <div class="calendar-header">
+            <button id="prevBtn">←</button>
+            <span id="monthYear"></span>
+            <button id="nextBtn">→</button>
+        </div>
+        <div id="calendarView"></div>
+    </div>
+</div>
+
+<script>
+let current = new Date();
+let shifts = {};
+let viewMode = localStorage.getItem("viewMode") || "month";
+
+const daysShort = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+const monthNames = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+
+function formatDateKey(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+async function loadShiftsFromServer() {
+    try {
+        const response = await fetch('schichtplan.json?t=' + new Date().getTime());
+        if (response.ok) {
+            shifts = await response.json();
+            render();
+        } else {
+            console.error("Die Datei 'schichtplan.json' wurde nicht im Ordner gefunden.");
+        }
+    } catch (err) {
+        console.error("Fehler beim Abrufen der Schichten via fetch:", err);
+    }
+}
+
+function render() {
+    const container = document.getElementById("calendarView");
+    container.innerHTML = "";
+    if (viewMode === "month") renderMonth(container);
+    else renderWeek(container);
+}
+
+function renderMonth(container) {
+    const grid = document.createElement("div");
+    grid.className = "calendar-grid";
+
+    daysShort.forEach(d => {
+        const div = document.createElement("div");
+        div.className = "day-name";
+        div.textContent = d;
+        grid.appendChild(div);
+    });
+
+    const y = current.getFullYear();
+    const m = current.getMonth();
+    const firstDayIndex = (new Date(y, m, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+
+    for (let i = 0; i < firstDayIndex; i++) {
+        const emptyDiv = document.createElement("div");
+        emptyDiv.className = "day-name";
+        grid.appendChild(emptyDiv);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+        grid.appendChild(createDayElement(new Date(y, m, d)));
+    }
+    document.getElementById("monthYear").textContent = `${monthNames[m]} ${y}`;
+    container.appendChild(grid);
+}
+
+function renderWeek(container) {
+    const grid = document.createElement("div");
+    grid.style.display = "flex";
+    grid.style.flexDirection = "column";
+    grid.style.gap = "10px";
+
+    const start = new Date(current);
+    const day = start.getDay();
+    start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setDate(start.getDate() + i);
+        grid.appendChild(createDayElement(d, true));
+    }
+
+    document.getElementById("monthYear").textContent = `KW ${getWeekNumber(start)} / ${start.getFullYear()}`;
+    container.appendChild(grid);
+}
+
+function getWeekNumber(d) {
+    d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
+    var yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+    return Math.ceil(( ( (d - yearStart) / 86400000) + 1)/7);
+}
+
+function createDayElement(date, full = false) {
+    const k = formatDateKey(date);
+    const div = document.createElement("div");
+    div.className = "day";
+    if (date.toDateString() === new Date().toDateString()) div.classList.add("today");
+
+    const weekdayName = daysShort[(date.getDay() + 6) % 7];
+    const num = document.createElement("div");
+    num.className = "day-number";
+
+    if (full) {
+        num.textContent = `${weekdayName}, ${date.getDate()}.${date.getMonth()+1}.`;
+    } else {
+        // Hier wurde das Komma durch einen Punkt ersetzt
+        num.innerHTML = `${date.getDate()}. <span class="mobile-weekday">${weekdayName}</span>`;
+    }
+    div.appendChild(num);
+
+    const sContainer = document.createElement("div");
+    sContainer.className = "shifts-container";
+
+    if (shifts[k] && Array.isArray(shifts[k])) {
+        shifts[k].forEach(s => {
+            const sDiv = document.createElement("div");
+            sDiv.className = "shift";
+            sDiv.style.background = s.color || "#1976d2";
+            if (s.type === "U") sDiv.style.color = "#000";
+            sDiv.textContent = `${s.type} ${s.time || ''}`;
+            sContainer.appendChild(sDiv);
+
+            if (s.note) {
+                const nDiv = document.createElement("span");
+                nDiv.className = "note";
+                nDiv.textContent = s.note;
+                sContainer.appendChild(nDiv);
+            }
+        });
+    }
+
+    div.appendChild(sContainer);
+    return div;
+}
+
+document.getElementById("prevBtn").onclick = () => {
+    if (viewMode === "month") current.setMonth(current.getMonth() - 1);
+    else current.setDate(current.getDate() - 7);
+    render();
+};
+document.getElementById("nextBtn").onclick = () => {
+    if (viewMode === "month") current.setMonth(current.getMonth() + 1);
+    else current.setDate(current.getDate() + 7);
+    render();
+};
+
+document.getElementById("viewToggle").onclick = () => {
+    viewMode = viewMode === "month" ? "week" : "month";
+    localStorage.setItem("viewMode", viewMode);
+    render();
+};
+
+document.getElementById("themeToggle").onclick = () => {
+    const isDark = document.documentElement.classList.toggle("dark");
+    localStorage.setItem("theme", isDark ? "dark" : "light");
+};
+
+if (localStorage.getItem("theme") === "dark") document.documentElement.classList.add("dark");
+
+loadShiftsFromServer();
+</script>
+</body>
+</html>
