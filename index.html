@@ -108,7 +108,6 @@
         }
 
         .shift {
-            color: #fff;
             padding: 4px 6px;
             border-radius: 4px;
             font-size: 0.75rem;
@@ -265,7 +264,6 @@ function createDayElement(date, full = false) {
     if (full) {
         num.textContent = `${weekdayName}, ${date.getDate()}.${date.getMonth()+1}.`;
     } else {
-        // Hier wurde das Komma durch einen Punkt ersetzt
         num.innerHTML = `${date.getDate()}. <span class="mobile-weekday">${weekdayName}</span>`;
     }
     div.appendChild(num);
@@ -278,7 +276,10 @@ function createDayElement(date, full = false) {
             const sDiv = document.createElement("div");
             sDiv.className = "shift";
             sDiv.style.background = s.color || "#1976d2";
-            if (s.type === "U") sDiv.style.color = "#000";
+
+            // NEU: Liest die Schriftfarbe dynamisch aus der JSON aus. Wenn keine da ist, nimm Weiß.
+            sDiv.style.color = s.textColor || "#ffffff";
+
             sDiv.textContent = `${s.type} ${s.time || ''}`;
             sContainer.appendChild(sDiv);
 
